@@ -21,6 +21,8 @@ extern crate serde;
 use serde::{Deserialize, Serialize};
 extern crate moon_loader;
 use moon_loader::*;
+extern crate flag_by_code;
+use flag_by_code::*;
 
 #[derive(Serialize, Deserialize)]
 struct Tweet {
@@ -31,7 +33,11 @@ struct Tweet {
 struct TweetData {
 	id: String,
 	text: String,
+	lang: String
 }
+
+const FILTER_URL:&str = "https://api.twitter.com/2/tweets/search/stream?tweet.fields=lang";
+const SAMPLE_URL:&str = "https://api.twitter.com/2/tweets/sample/stream?tweet.fields=lang";
 
 fn main() {
 	let matches = App::new("retriever")
@@ -46,6 +52,10 @@ fn main() {
 			.short("p")
 			.long("print")
 			.help("Print retrieved data to stdout"))
+		.arg(Arg::with_name("sample")
+			.short("s")
+			.long("sample")
+			.help("Retrieve 1% of all tweets instead of filtered ones"))
 		.arg(Arg::with_name("create new")
 			.short("c")
 			.long("new")
@@ -55,9 +65,9 @@ fn main() {
 	let mut loader = MoonLoader::new(MoonLoaderVariant::Moon, true);
 
 	let mut p = false;
-	if matches.is_present("print") { p = true; }
+	if matches.is_present("print") { p = true }
 	let mut easy = Easy::new();
-	easy.url("https://api.twitter.com/2/tweets/search/stream").unwrap();
+	easy.url(if matches.is_present("sample") { SAMPLE_URL } else { FILTER_URL }).unwrap();
 
 	let mut list = List::new();
 	list.append(&("Authorization: Bearer ".to_owned() + meta::BEARER)).unwrap();
@@ -65,7 +75,7 @@ fn main() {
 
 	let path = PathBuf::from(matches.value_of("OUTPUT").unwrap());
 	let mut file;
-	if matches.is_present("create new") { file = File::create(path).unwrap(); }
+	if matches.is_present("create new") { file = File::create(path).unwrap(); write!(&mut file, "[").unwrap();}
 	else { 
 		file = OpenOptions::new()
 			.write(true)
@@ -90,14 +100,16 @@ fn main() {
 			else{
 				println!("\n{}new tweet:", "Retrieved ".color(TermColor::Green).bold());
 				let t: Tweet = serde_json::from_str(d).unwrap();
-				println!("{}", t.data.text);
+				println!("{}  {}", FlagByCode::flag(&t.data.lang), t.data.text);
 				&loader.draw();
 				print!("{}for new tweets...", "Looking ".color(TermColor::Cyan).bold());
 				io::stdout().flush().unwrap();
 			}
 			//stdout().write_all(data).unwrap() 
 		}
-		write!(&mut file, "{}", d ).unwrap();
+		if d != "\r\n" {
+			write!(&mut file, "{},", d ).unwrap();
+		}
 		
 		Ok(data.len())
 	}).unwrap();
