@@ -8,12 +8,30 @@ mod meta;
 
 use clap::App;
 use clap::Arg;
-use std::io::{stdout, Write};
+use std::io::{self, Write};
 use curl::easy::{Easy, List};
 use std::path::PathBuf;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::str;
+extern crate colorful;
+use colorful::Color as TermColor;
+use colorful::Colorful;
+extern crate serde;
+use serde::{Deserialize, Serialize};
+extern crate moon_loader;
+use moon_loader::*;
+
+#[derive(Serialize, Deserialize)]
+struct Tweet {
+	data: TweetData,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct TweetData {
+	id: String,
+	text: String,
+}
 
 fn main() {
 	let matches = App::new("retriever")
@@ -22,7 +40,7 @@ fn main() {
 		.author("Aydar N.")
 		.arg(Arg::with_name("OUTPUT")
 			.help("Path to output file")
-			.required(false)
+			.required(true)
 			.index(1))
 		.arg(Arg::with_name("print")
 			.short("p")
@@ -34,6 +52,10 @@ fn main() {
 			.help("Create new file instead of looking for existing one"))
 		.get_matches();
 
+	let mut loader = MoonLoader::new(MoonLoaderVariant::Moon, true);
+
+	let mut p = false;
+	if matches.is_present("print") { p = true; }
 	let mut easy = Easy::new();
 	easy.url("https://api.twitter.com/2/tweets/search/stream").unwrap();
 
@@ -53,14 +75,37 @@ fn main() {
 		}
 
 	easy.write_function(move |data| {
-		if matches.is_present("print") { stdout().write_all(data).unwrap() }
+		let d;
 		match str::from_utf8(data) {
-			Ok(d) => write!(&mut file, "{}", if d == "\r\n" { "" } else { d }).unwrap(),
+			Ok(dt) => d = dt,
 			Err(_) => panic!("Couldn't convert from slice"),
 		}
+
+		if p {
+			if d == "\r\n"{
+				&loader.draw();
+				print!("{}for new tweets...", "Waiting ".color(TermColor::Cyan).bold());
+				io::stdout().flush().unwrap();
+			}
+			else{
+				println!("\n{}new tweet:", "Retrieved ".color(TermColor::Green).bold());
+				let t: Tweet = serde_json::from_str(d).unwrap();
+				println!("{}", t.data.text);
+				&loader.draw();
+				print!("{}for new tweets...", "Looking ".color(TermColor::Cyan).bold());
+				io::stdout().flush().unwrap();
+			}
+			//stdout().write_all(data).unwrap() 
+		}
+		write!(&mut file, "{}", d ).unwrap();
 		
 		Ok(data.len())
 	}).unwrap();
 
+	if p { 
+		loader.draw();
+		print!("{}retrieving", "Started ".color(TermColor::Cyan).bold());
+		io::stdout().flush().unwrap();
+	}
 	easy.perform().unwrap();
 }
